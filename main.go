@@ -4,11 +4,25 @@ import (
 	"html/template"
 	"io/ioutil"
 	"net/http"
+	"regexp"
+	"errors"
 )
+
+var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
+var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
 
 type Page struct {
 	Title string
 	Body []byte
+}
+
+func getTitle(response http.ResponseWriter, request *http.Request) (string, error) {
+	m := validPath.FindStringSubmatch(request.URL.Path)
+	if m == nil {
+		http.NotFound(response, request)
+		return "", errors.New("Invalid Page Title")
+	}
+	return m[2], nil
 }
 
 func (p *Page) save() error {
@@ -26,12 +40,17 @@ func loadPage(title string) (*Page, error) {
 }
 
 func renderTemplate(response http.ResponseWriter, tmpl string, page *Page) {
-	t, _ := template.ParseFiles(tmpl+".html")
-	t.Execute(response, page)
+	err := templates.ExecuteTemplate(response, tmpl+".html", page)
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func viewHandler(response http.ResponseWriter, request *http.Request) {
-	title := request.URL.Path[len("/view/"):]
+	title, err := getTitle(response, request)
+	if err != nil {
+		return
+	}
 	page, err := loadPage(title)
 	if err != nil {
 		http.Redirect(response, request, "/edit/"+title, http.StatusFound)
@@ -41,7 +60,10 @@ func viewHandler(response http.ResponseWriter, request *http.Request) {
 }
 
 func editHandler(response http.ResponseWriter, request *http.Request) {
-	title := request.URL.Path[len("/edit/"):]
+	title, err := getTitle(response, request)
+	if err != nil {
+		return
+	}
 	page, err := loadPage(title)
 	if err != nil {
 		page = &Page{Title: title}
@@ -50,10 +72,17 @@ func editHandler(response http.ResponseWriter, request *http.Request) {
 }
 
 func saveHandler(response http.ResponseWriter, request *http.Request) {
-	title := request.URL.Path[len("/save/"):]
+	title, err := getTitle(response, request)
+	if err != nil {
+		return
+	}
 	body := request.FormValue("body")
-	p := &Page{Title: title, Body: []byte(body)}
-	p.save()
+	page := &Page{Title: title, Body: []byte(body)}
+	err = page.save()
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(response, request, "/view/"+title, http.StatusFound)
 }
 
