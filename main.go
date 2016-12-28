@@ -39,6 +39,17 @@ func loadPage(title string) (*Page, error) {
 	return &Page{ Title: title, Body: body }, nil
 }
 
+func makeHandler(fn func (http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		m := validPath.FindStringSubmatch(request.URL.Path)
+		if m == nil {
+			http.NotFound(response, request)
+			return
+		}
+		fn(response, request, m[2])
+	}
+}
+
 func renderTemplate(response http.ResponseWriter, tmpl string, page *Page) {
 	err := templates.ExecuteTemplate(response, tmpl+".html", page)
 	if err != nil {
@@ -46,11 +57,7 @@ func renderTemplate(response http.ResponseWriter, tmpl string, page *Page) {
 	}
 }
 
-func viewHandler(response http.ResponseWriter, request *http.Request) {
-	title, err := getTitle(response, request)
-	if err != nil {
-		return
-	}
+func viewHandler(response http.ResponseWriter, request *http.Request, title string) {
 	page, err := loadPage(title)
 	if err != nil {
 		http.Redirect(response, request, "/edit/"+title, http.StatusFound)
@@ -59,11 +66,7 @@ func viewHandler(response http.ResponseWriter, request *http.Request) {
 	renderTemplate(response, "view", page)
 }
 
-func editHandler(response http.ResponseWriter, request *http.Request) {
-	title, err := getTitle(response, request)
-	if err != nil {
-		return
-	}
+func editHandler(response http.ResponseWriter, request *http.Request, title string) {
 	page, err := loadPage(title)
 	if err != nil {
 		page = &Page{Title: title}
@@ -71,14 +74,10 @@ func editHandler(response http.ResponseWriter, request *http.Request) {
 	renderTemplate(response, "edit", page)
 }
 
-func saveHandler(response http.ResponseWriter, request *http.Request) {
-	title, err := getTitle(response, request)
-	if err != nil {
-		return
-	}
+func saveHandler(response http.ResponseWriter, request *http.Request, title string) {
 	body := request.FormValue("body")
 	page := &Page{Title: title, Body: []byte(body)}
-	err = page.save()
+	err := page.save()
 	if err != nil {
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
@@ -87,8 +86,8 @@ func saveHandler(response http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/view/", viewHandler)
-	http.HandleFunc("/edit/", editHandler)
-	http.HandleFunc("/save/", saveHandler)
+	http.HandleFunc("/view/", makeHandler(viewHandler))
+	http.HandleFunc("/edit/", makeHandler(editHandler))
+	http.HandleFunc("/save/", makeHandler(saveHandler))
 	http.ListenAndServe(":8080", nil)
 }
